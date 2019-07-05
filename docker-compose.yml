@@ -1,0 +1,318 @@
+version: '3'
+services:
+  zookeeperofm1:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: zookeeper-ofm-1
+    ports:
+      - "22181:22181"
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 22181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_SERVERS: zookeeperofm1:22888:23888;zookeeperofm2:32888:33888;zookeeperofm3:42888:43888
+    restart: always
+    networks:
+      - kafka-ofm
+
+
+  zookeeperofm2:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: zookeeper-ofm-2
+    ports:
+      - "32181:32181"
+    environment:
+      ZOOKEEPER_SERVER_ID: 2
+      ZOOKEEPER_CLIENT_PORT: 32181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_SERVERS: zookeeperofm1:22888:23888;zookeeperofm2:32888:33888;zookeeperofm3:42888:43888
+    restart: always
+    networks:
+      - kafka-ofm
+
+
+  zookeeperofm3:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: zookeeper-ofm-3
+    ports:
+      - "42181:42181"
+    environment:
+      ZOOKEEPER_SERVER_ID: 3
+      ZOOKEEPER_CLIENT_PORT: 42181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_SERVERS: zookeeperofm1:22888:23888;zookeeperofm2:32888:33888;zookeeperofm3:42888:43888
+    restart: always
+    networks:
+      - kafka-ofm
+
+
+  kafka-1:
+    image: confluentinc/cp-kafka:latest
+    container_name: broker-ofm-1
+    ports:
+      - "19092:19092"
+    depends_on:
+      - zookeeperofm1
+      - zookeeperofm2
+      - zookeeperofm3
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeperofm1:22181,zookeeperofm2:32181,zookeeperofm3:42181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://10.17.2.210:19092
+    restart: always
+    networks:
+      - kafka-ofm
+
+
+  kafka-2:
+    image: confluentinc/cp-kafka:latest
+    container_name: broker-ofm-2
+    ports:
+      - "29092:29092"
+    depends_on:
+      - zookeeperofm1
+      - zookeeperofm2
+      - zookeeperofm3
+      - kafka-1
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeperofm1:22181,zookeeperofm2:32181,zookeeperofm3:42181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://10.17.2.210:29092
+    restart: always
+    networks:
+      - kafka-ofm
+
+  kafka-3:
+    image: confluentinc/cp-kafka:latest
+    container_name: broker-ofm-3
+    ports:
+      - "39092:39092"
+    depends_on:
+      - zookeeperofm1
+      - zookeeperofm2
+      - zookeeperofm3
+      - kafka-1
+      - kafka-2
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeperofm1:22181,zookeeperofm2:32181,zookeeperofm3:42181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://10.17.2.210:39092
+    restart: always
+    networks:
+      - kafka-ofm
+  schema-registry:
+    image: confluentinc/cp-schema-registry:5.2.2
+    hostname: schema-registry
+    container_name: schema-registry-ofm
+    depends_on:
+      - zookeeperofm1
+      - zookeeperofm2
+      - zookeeperofm3
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: 'zookeeperofm1:22181'
+    networks:
+      - kafka-ofm
+
+  connect:
+    image: confluentinc/kafka-connect-datagen:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: connect
+    container_name: connect-ofm
+    depends_on:
+      - zookeeperofm1
+      - zookeeperofm2
+      - zookeeperofm3
+      - kafka-1
+      - kafka-2
+      - kafka-3
+      - schema-registry
+    networks:
+      - kafka-ofm
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: '10.17.2.210:19092'
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: compose-connect-group
+      CONNECT_CONFIG_STORAGE_TOPIC: docker-connect-configs
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+      CONNECT_OFFSET_STORAGE_TOPIC: docker-connect-offsets
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_TOPIC: docker-connect-status
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_INTERNAL_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_INTERNAL_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_ZOOKEEPER_CONNECT: 'zookeeperofm1:22181'
+      # Assumes image is based on confluentinc/kafka-connect-datagen:latest which is pulling 5.1.1 Connect image
+      CLASSPATH: /usr/share/java/monitoring-interceptors/monitoring-interceptors-5.2.2.jar
+      CONNECT_PRODUCER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor"
+      CONNECT_CONSUMER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor"
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
+      CONNECT_LOG4J_LOGGERS: org.apache.zookeeper=ERROR,org.I0Itec.zkclient=ERROR,org.reflections=ERROR
+    command: "bash -c 'if [ ! -d /usr/share/confluent-hub-components/confluentinc-kafka-connect-datagen ]; then echo \"WARNING: Did not find directory for kafka-connect-datagen (did you remember to run: docker-compose up -d --build ?)\"; fi ; /etc/confluent/docker/run'"
+
+  control-center:
+    image: confluentinc/cp-enterprise-control-center:5.2.2
+    hostname: control-center
+    container_name: control-center-ofm
+    restart: always
+    networks:
+      - kafka-ofm
+    depends_on:
+      - zookeeperofm1
+      - zookeeperofm2
+      - zookeeperofm3
+      - kafka-1
+      - kafka-2
+      - kafka-3
+      - schema-registry
+      - connect
+      - ksql-server
+    ports:
+      - "9021:9021"
+    environment:
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: '10.17.2.210:19092,10.17.2.210:29092,10.17.2.210:39092'
+      CONTROL_CENTER_ZOOKEEPER_CONNECT: 'zookeeperofm1:22181,zookeeperofm2:32181,zookeeperofm3:42181'
+      CONTROL_CENTER_CONNECT_CLUSTER: 'connect:8083'
+      CONTROL_CENTER_KSQL_URL: "http://ksql-server:8088"
+      CONTROL_CENTER_KSQL_ADVERTISED_URL: "http://10.17.2.210:8088"
+      CONTROL_CENTER_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
+      CONFLUENT_METRICS_TOPIC_REPLICATION: 1
+      PORT: 9021
+
+  ksql-server:
+    image: confluentinc/cp-ksql-server:5.2.2
+    hostname: ksql-server
+    container_name: ksql-server-ofm
+    networks:
+      - kafka-ofm
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+      - connect
+    ports:
+      - "8088:8088"
+    environment:
+      KSQL_CONFIG_DIR: "/etc/ksql"
+      KSQL_LOG4J_OPTS: "-Dlog4j.configuration=file:/etc/ksql/log4j-rolling.properties"
+      KSQL_BOOTSTRAP_SERVERS: "10.17.2.210:19092"
+      KSQL_HOST_NAME: ksql-server
+      KSQL_APPLICATION_ID: "cp-all-in-one"
+      KSQL_LISTENERS: "http://0.0.0.0:8088"
+      KSQL_CACHE_MAX_BYTES_BUFFERING: 0
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      KSQL_PRODUCER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor"
+      KSQL_CONSUMER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor"
+
+  ksql-cli:
+    image: confluentinc/cp-ksql-cli:5.2.2
+    container_name: ksql-cli-ofm
+    networks:
+      - kafka-ofm
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+      - connect
+      - ksql-server
+    entrypoint: /bin/sh
+    tty: true
+
+  ksql-datagen:
+    # Downrev ksql-examples to 5.1.2 due to DEVX-798 (work around issues in 5.2.0)
+    image: confluentinc/ksql-examples:5.2.2
+    hostname: ksql-datagen
+    container_name: ksql-datagen-ofm
+    networks:
+      - kafka-ofm
+    depends_on:
+      - ksql-server
+      - kafka-1
+      - kafka-2
+      - kafka-3
+      - schema-registry
+      - connect
+    command: "bash -c 'echo Waiting for Kafka to be ready... && \
+                       cub kafka-ready -b 10.17.2.210:19092 1 40 && \
+                       cub kafka-ready -b 10.17.2.210:29092 2 40 && \
+                       cub kafka-ready -b 10.17.2.210:39092 3 40 && \
+                       echo Waiting for Confluent Schema Registry to be ready... && \
+                       cub sr-ready schema-registry 8081 40 && \
+                       echo Waiting a few seconds for topic creation to finish... && \
+                       sleep 11 && \
+                       tail -f /dev/null'"
+    environment:
+      KSQL_CONFIG_DIR: "/etc/ksql"
+      KSQL_LOG4J_OPTS: "-Dlog4j.configuration=file:/etc/ksql/log4j-rolling.properties"
+      STREAMS_BOOTSTRAP_SERVERS: 10.17.2.210:19092
+      STREAMS_SCHEMA_REGISTRY_HOST: schema-registry
+      STREAMS_SCHEMA_REGISTRY_PORT: 8081
+
+  rest-proxy:
+    image: confluentinc/cp-kafka-rest:5.2.2
+    networks:
+      - kafka-ofm
+    depends_on:
+      - zookeeperofm1
+      - zookeeperofm2
+      - zookeeperofm3
+      - kafka-1
+      - kafka-2
+      - kafka-3
+      - schema-registry
+    ports:
+      - 8082:8082
+    hostname: rest-proxy
+    container_name: rest-proxy
+    environment:
+      KAFKA_REST_HOST_NAME: rest-proxy
+      KAFKA_REST_BOOTSTRAP_SERVERS: '10.17.2.210:19092'
+      KAFKA_REST_LISTENERS: "http://0.0.0.0:8082"
+      KAFKA_REST_SCHEMA_REGISTRY_URL: 'http://schema-registry:8081'
+
+  managementofm:
+    image: sheepkiller/kafka-manager:latest
+    container_name: management-ofm
+    build: ./management
+    restart: always
+    ports:
+      - "9090:9000"
+    links:
+      - zookeeperofm1
+      - zookeeperofm2
+      - zookeeperofm3
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    environment:
+      ZK_HOSTS: zookeeperofm1:22181
+      APPLICATION_SECRET: letmein
+      KM_ARGS: -Djava.net.preferIPv4Stack=true
+    networks:
+      - kafka-ofm
+
+networks:
+    kafka-ofm:
+      driver: bridge
