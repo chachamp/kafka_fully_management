@@ -473,32 +473,18 @@ services:
       KM_ARGS: -Djava.net.preferIPv4Stack=true
     networks:
       - kafka-ofm
-
-  web:
-    image: elkozmon/zoonavigator-web:latest
-    container_name: zoonavigator-web
+      
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    restart: always
+    networks:
+      - kafka-ofm
     ports:
-     - "8001:8000"
-    environment:
-      API_HOST: "api"
-      API_PORT: 9000
-    depends_on:
-     - api
-    restart: always
-    networks:
-      - kafka-ofm
-  api:
-    image: elkozmon/zoonavigator-api:latest
-    container_name: zoonavigator-api
-    environment:
-      SERVER_HTTP_PORT: 9000
-    restart: always
-    networks:
-      - kafka-ofm
-    depends_on:
-      - zookeeperofm1
-      - zookeeperofm2
-      - zookeeperofm3
+      - "9095:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+
 
 
 
